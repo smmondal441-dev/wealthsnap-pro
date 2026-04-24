@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WealthSnap Simple</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        body { background-color: #000; color: #fff; font-family: sans-serif; }
+        .mic-btn { width: 100px; height: 100px; border-radius: 50%; background: #22c55e; display: flex; items-center; justify-content: center; font-size: 40px; color: #000; margin: 20px auto; cursor: pointer; transition: 0.3s; }
+        .mic-active { background: #ef4444; animation: pulse 1s infinite; color: #fff; }
+        @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.1); } 100% { transform: scale(1); } }
+    </style>
+</head>
+<body class="p-6 flex flex-col items-center min-h-screen">
+
+    <div class="w-full max-w-md flex justify-between items-center mb-10">
+        <h1 class="text-xl font-bold tracking-tighter uppercase">Wealth<span class="text-green-500">Snap</span></h1>
+        <button onclick="fetchAnalytics()" class="text-gray-500"><i class="fas fa-sync"></i></button>
+    </div>
+
+    <div class="w-full max-w-md grid grid-cols-2 gap-4 mb-12 text-center">
+        <div class="bg-zinc-900 p-4 rounded-2xl">
+            <p class="text-[10px] text-gray-500 uppercase font-bold">Today</p>
+            <p id="dailyTotal" class="text-xl font-medium">0</p>
+        </div>
+        <div class="bg-zinc-900 p-4 rounded-2xl">
+            <p class="text-[10px] text-gray-500 uppercase font-bold">Month</p>
+            <p id="monthlyTotal" class="text-xl font-medium">0</p>
+        </div>
+    </div>
+
+    <div class="flex-1 flex flex-col items-center justify-center">
+        <p id="statusTxt" class="text-gray-400 text-sm mb-4 italic text-center">Tap to speak expense...</p>
+        <div id="micBtn" class="mic-btn shadow-lg shadow-green-500/20">
+            <i class="fas fa-microphone"></i>
+        </div>
+        <textarea id="userInput" class="mt-6 bg-transparent text-center text-white outline-none w-full max-w-xs resize-none" rows="2" placeholder="Listening result..."></textarea>
+    </div>
+
+    <div class="w-full max-w-md mt-10 space-y-4">
+        <button id="submitBtn" class="w-full bg-white text-black font-bold py-3 rounded-xl uppercase text-xs tracking-widest">Sync Transaction</button>
+        <button onclick="downloadCSV()" class="w-full border border-zinc-800 text-gray-500 py-3 rounded-xl text-xs font-bold uppercase tracking-widest">
+            <i class="fas fa-download mr-2"></i> Download Report
+        </button>
+    </div>
+
+    <script>
+        let allData = [];
+        const micBtn = document.getElementById('micBtn');
+        const userInput = document.getElementById('userInput');
+        const statusTxt = document.getElementById('statusTxt');
+
+        // Voice Logic
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (SpeechRecognition) {
+            const recognition = new SpeechRecognition();
+            micBtn.onclick = () => {
+                recognition.start();
+                micBtn.classList.add('mic-active');
+                statusTxt.innerText = "I'm listening...";
+            };
+            recognition.onresult = (e) => {
+                userInput.value = e.results[0][0].transcript;
+                micBtn.classList.remove('mic-active');
+                statusTxt.innerText = "Captured! Tap Sync to save.";
+            };
+            recognition.onend = () => micBtn.classList.remove('mic-active');
+        }
+
+        // Fetch Stats
+        async function fetchAnalytics() {
+            try {
+                const res = await fetch('/api/report');
+                allData = await res.json();
+                let daySum = 0, monSum = 0;
+                const today = new Date().toLocaleDateString();
+
+                allData.forEach(r => {
+                    const amt = parseFloat(r.Expenditures || 0);
+                    monSum += amt;
+                    if (new Date(r.Date).toLocaleDateString() === today) daySum += amt;
+                });
+
+                document.getElementById('dailyTotal').innerText = daySum;
+                document.getElementById('monthlyTotal').innerText = monSum;
+            } catch (e) { console.log("Offline mode or Server error"); }
+        }
+
+        // Sync Data
+        document.getElementById('submitBtn').onclick = async () => {
+            const text = userInput.value;
+            if(!text) return alert("Please speak or write first");
+            
+            statusTxt.innerText = "Syncing...";
+            try {
+                await fetch('/api/track', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text })
+                });
+                userInput.value = "";
+                statusTxt.innerText = "Sync Successful!";
+                fetchAnalytics();
+            } catch (err) { alert("Sync Error! Check if server is running."); }
+        };
+
+        // Download Logic
+        function downloadCSV() {
+            if(allData.length === 0) return alert("No data to download");
+            let csv = "Date,Item,Amount,Category\n";
+            allData.forEach(r => csv += `${new Date(r.Date).toLocaleDateString()},${r.Item},${r.Amount},${r.Category}\n`);
+            const blob = new Blob([csv], { type: 'text/csv' });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'WealthSnap_Report.csv';
+            a.click();
+        }
+
+        window.onload = fetchAnalytics;
+    </script>
+</body>
+</html>
