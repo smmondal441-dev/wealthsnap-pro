@@ -10,11 +10,11 @@ const GOOGLE_SHEET_URL = "https://script.google.com/macros/s/AKfycbw6QHuQUjxJ8Ax
 app.use(express.json());
 app.use(express.static(__dirname));
 
+// These models are exactly from your Screenshot 49
 const modelList = [
-    "gemini-2.0-flash-exp",
-    "gemini-2.0-flash",
-    "gemini-1.5-flash-8b",
-    "gemini-pro-experimental"
+    "gemini-3.1-flash-lite-preview",
+    "gemini-3-flash-preview",
+    "gemini-3.1-pro-preview"
 ];
 
 async function callGemini(text) {
@@ -25,7 +25,7 @@ async function callGemini(text) {
             
             const response = await axios.post(url, {
                 contents: [{ parts: [{ text: `Extract finance data from: "${text}". Return ONLY JSON: {"item": "string", "amount": number, "category": "string", "expenditure": "string"}` }] }]
-            }, { timeout: 10000 });
+            }, { timeout: 15000 });
 
             if (response.data && response.data.candidates) {
                 console.log(`Success with: ${modelName}`);
@@ -34,14 +34,18 @@ async function callGemini(text) {
         } catch (err) {
             const status = err.response ? err.response.status : "Error";
             console.warn(`${modelName} Status: ${status}`);
+            
+            if (status === 429) {
+                console.log("Rate limit hit, skipping to next...");
+            }
         }
     }
-    throw new Error("No active models found.");
+    throw new Error("No active models found in your account.");
 }
 
 app.post('/process-voice', async (req, res) => {
     const { text } = req.body;
-    console.log("--- Request Received ---", text);
+    console.log("--- New Request ---", text);
 
     if (!GEMINI_API_KEY) return res.status(500).json({ success: false, error: "API Key missing" });
 
@@ -50,14 +54,14 @@ app.post('/process-voice', async (req, res) => {
         const cleanJson = resultText.replace(/```json|```/g, "").trim();
         const financeData = JSON.parse(cleanJson);
 
-        console.log("Pushing to Sheets:", financeData);
+        console.log("Data to Sheets:", financeData);
         await axios.post(GOOGLE_SHEET_URL, JSON.stringify(financeData), {
             headers: { 'Content-Type': 'text/plain;charset=utf-8' }
         });
         
         res.json({ success: true, data: financeData });
     } catch (error) {
-        console.error("Critical Error:", error.message);
+        console.error("Critical System Error:", error.message);
         res.status(500).json({ success: false, error: error.message });
     }
 });
