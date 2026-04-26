@@ -12,29 +12,48 @@ app.use(express.static(__dirname));
 
 app.post('/process-voice', async (req, res) => {
     const { text } = req.body;
+    console.log("--- New Request Received ---");
+    console.log("Input Text:", text);
+
+    // 1. Check API Key
+    if (!GEMINI_API_KEY) {
+        console.error("DEBUG ERROR: GEMINI_API_KEY is missing in Render Environment Variables!");
+        return res.status(500).json({ success: false, error: "Server Configuration Error: Missing API Key" });
+    }
+
     try {
-        const prompt = `Extract finance data from: "${text}". Return ONLY JSON format: {"item": "string", "amount": number, "category": "string", "expenditure": "string"}. Do not include any other text.`;
-        
+        // 2. Gemini AI Processing
+        console.log("Step 1: Sending to Gemini AI...");
         const response = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
-            contents: [{ parts: [{ text: prompt }] }]
+            contents: [{ parts: [{ text: `Extract finance data from: "${text}". Return ONLY JSON: {"item": "string", "amount": number, "category": "string", "expenditure": "string"}` }] }]
         });
 
         const resultText = response.data.candidates[0].content.parts[0].text;
         const cleanJson = resultText.replace(/```json|```/g, "").trim();
         const financeData = JSON.parse(cleanJson);
+        console.log("Step 2: AI Successfully parsed data:", financeData);
 
-        console.log("Extracted Data:", financeData);
-
+        // 3. Google Sheets Submission
+        console.log("Step 3: Sending to Google Sheets...");
         await axios({
             method: 'post',
             url: GOOGLE_SHEET_URL,
             data: JSON.stringify(financeData),
             headers: { 'Content-Type': 'text/plain;charset=utf-8' }
+        }).then(() => {
+            console.log("Step 4: Success! Data sent to Google Sheet.");
+        }).catch((err) => {
+            // This will catch the 404 error and show details
+            console.error("DEBUG ERROR: Google Sheets Failed!");
+            console.error("Status Code:", err.response ? err.response.status : "N/A");
+            console.error("Error Detail:", err.message);
+            throw new Error(`Google Sheets connection failed: ${err.message}`);
         });
         
         res.json({ success: true, data: financeData });
+
     } catch (error) {
-        console.error("Runtime Error:", error.message);
+        console.error("CRITICAL ERROR:", error.message);
         res.status(500).json({ success: false, error: error.message });
     }
 });
@@ -44,5 +63,5 @@ app.get('/', (req, res) => {
 });
 
 app.listen(port, () => {
-    console.log(`Server is running on port ${port}`);
+    console.log(`WealthSnap Server active on port ${port}`);
 });
